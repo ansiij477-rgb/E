@@ -1,0 +1,210 @@
+
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CamShare Pro</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #0b0f1a;
+            color: #e2e8f0;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+        .main-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 1rem;
+            background: #000;
+        }
+        .pulse-active {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center min-h-screen p-4 md:p-8">
+
+    <header class="text-center mb-8">
+        <h1 class="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">CamShare</h1>
+        <p class="text-slate-400 text-sm mt-1 uppercase tracking-widest font-semibold">Fast & Secure P2P</p>
+    </header>
+
+    <!-- Video Display -->
+    <div class="relative w-full max-w-lg aspect-[3/4] mb-8 group">
+        <video id="mainVideo" autoplay playsinline class="shadow-2xl"></video>
+        <div id="videoOverlay" class="absolute inset-0 flex items-center justify-center bg-slate-900/80 rounded-2xl">
+            <p class="text-slate-500 font-medium">Video Start Karein...</p>
+        </div>
+        
+        <!-- Floating PiP Button -->
+        <button id="pipBtn" class="absolute top-4 right-4 bg-black/50 backdrop-blur-md p-3 rounded-full border border-white/10 hover:bg-black/80 transition">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="10" x="3" y="11" rx="2"/><path d="M7 2h10"/><path d="M12 2v9"/></svg>
+        </button>
+    </div>
+
+    <!-- Interface Tabs -->
+    <div class="w-full max-w-lg space-y-4">
+        
+        <!-- OPTION 1: SHARE CAMERA -->
+        <div class="main-card p-6 rounded-3xl">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold flex items-center gap-2">
+                    <span class="w-2 h-2 bg-blue-500 rounded-full animate-ping"></span>
+                    1. Share My Camera
+                </h2>
+                <div class="bg-slate-900 px-3 py-1 rounded-lg border border-white/5">
+                    <span id="myPeerId" class="font-mono font-bold text-blue-400 tracking-tighter">....</span>
+                </div>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Apna camera chala kar ye ID doosre mobile ko dein.</p>
+            <div class="flex gap-2">
+                <button id="startShareBtn" class="flex-1 bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition flex items-center justify-center gap-2">
+                    Start Sharing
+                </button>
+                <button onclick="copyMyId()" class="bg-slate-700 px-4 py-3 rounded-xl hover:bg-slate-600 transition">
+                    Copy ID
+                </button>
+            </div>
+        </div>
+
+        <!-- OPTION 2: WATCH CAMERA -->
+        <div class="main-card p-6 rounded-3xl">
+            <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+                <span class="w-2 h-2 bg-emerald-500 rounded-full"></span>
+                2. Watch Remote Camera
+            </h2>
+            <div class="space-y-3">
+                <input type="text" id="remotePeerId" placeholder="Doosre mobile ki ID daalein..." 
+                    class="w-full bg-slate-900/50 border border-slate-700 px-4 py-3 rounded-xl text-center text-xl font-mono focus:border-blue-500 outline-none uppercase">
+                <button id="watchBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 py-3 rounded-xl font-bold transition">
+                    Connect & Watch
+                </button>
+            </div>
+        </div>
+
+        <p id="statusMsg" class="text-center text-xs text-slate-500 font-medium">Ready</p>
+    </div>
+
+    <script>
+        // ID Generator
+        function generateId() {
+            const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+            let res = '';
+            for(let i=0; i<5; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+            return res;
+        }
+
+        const myId = generateId();
+        const peer = new Peer(myId);
+        let localStream = null;
+
+        const mainVideo = document.getElementById('mainVideo');
+        const overlay = document.getElementById('videoOverlay');
+        const myIdText = document.getElementById('myPeerId');
+        const statusMsg = document.getElementById('statusMsg');
+
+        peer.on('open', (id) => {
+            myIdText.innerText = id;
+        });
+
+        // Handle Incoming Call (Jab koi doosra watch karein)
+        peer.on('call', (call) => {
+            statusMsg.innerText = "Someone is watching your camera...";
+            if (localStream) {
+                call.answer(localStream);
+            } else {
+                // Agar camera on nahi hai to viewer ko blank jayega
+                call.answer();
+            }
+        });
+
+        // ACTION: Start Sharing
+        document.getElementById('startShareBtn').onclick = async () => {
+            try {
+                if (localStream) {
+                    localStream.getTracks().forEach(t => t.stop());
+                    localStream = null;
+                    mainVideo.srcObject = null;
+                    overlay.style.display = 'flex';
+                    document.getElementById('startShareBtn').innerText = "Start Sharing";
+                    statusMsg.innerText = "Sharing Stopped";
+                    return;
+                }
+
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: true
+                });
+                mainVideo.srcObject = localStream;
+                overlay.style.display = 'none';
+                document.getElementById('startShareBtn').innerText = "Stop Sharing";
+                document.getElementById('startShareBtn').classList.add('bg-red-600');
+                statusMsg.innerText = "Camera Live - Share your ID";
+            } catch (err) {
+                alert("Camera access denied! Please check permissions.");
+            }
+        };
+
+        // ACTION: Watch Remote
+        document.getElementById('watchBtn').onclick = () => {
+            const rId = document.getElementById('remotePeerId').value.toUpperCase().trim();
+            if(!rId) return alert("Please enter a valid ID");
+
+            statusMsg.innerText = "Connecting to " + rId + "...";
+            // Jab watch kar rahe hon to hum apni stream nahi bhejte (null)
+            const call = peer.call(rId, null);
+            
+            call.on('stream', (stream) => {
+                mainVideo.srcObject = stream;
+                overlay.style.display = 'none';
+                statusMsg.innerText = "Watching Live Stream from " + rId;
+            });
+
+            call.on('error', () => {
+                statusMsg.innerText = "Connection Failed";
+                alert("Could not connect to this ID");
+            });
+        };
+
+        // Picture in Picture
+        document.getElementById('pipBtn').onclick = async () => {
+            try {
+                if (document.pictureInPictureElement) {
+                    await document.exitPictureInPicture();
+                } else if (mainVideo.srcObject) {
+                    await mainVideo.requestPictureInPicture();
+                } else {
+                    alert("No video playing to enter PiP mode.");
+                }
+            } catch (e) {
+                alert("PiP not supported on this device/browser.");
+            }
+        };
+
+        function copyMyId() {
+            const id = myIdText.innerText;
+            navigator.clipboard.writeText(id).then(() => {
+                const btn = event.target;
+                const old = btn.innerText;
+                btn.innerText = "Copied!";
+                setTimeout(() => btn.innerText = old, 1500);
+            });
+        }
+    </script>
+</body>
+</html>
+
+```
